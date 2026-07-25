@@ -100,7 +100,7 @@ impl LanguageServer for Backend {
 
         Ok(InitializeResult {
             server_info: None,
-            offset_encoding: None,
+            offset_encoding: Some("utf-8".to_string()),
 
             capabilities: ServerCapabilities {
                 document_formatting_provider: Some(OneOf::Left(true)),

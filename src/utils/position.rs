@@ -41,6 +41,8 @@ pub fn lsp_pos_to_utf8_byte_offset(text: &str, pos: Position) -> Option<usize> {
     let target = line_start.saturating_add(col);
     if target > line_end {
         Some(line_end)
+    } else if !text.is_char_boundary(target) {
+        Some(target.saturating_sub(1))
     } else {
         Some(target)
     }
