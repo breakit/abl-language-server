@@ -39,6 +39,7 @@ pub struct WebSpeedDocument {
     /// Parse tree of each section, aligned with `sections` (None for Html).
     trees: Vec<Option<Tree>>,
     js: JsParser,
+    version: Option<i32>,
 }
 
 impl Default for JsParser {
@@ -78,6 +79,24 @@ impl WebSpeedDocument {
 
     pub fn sections(&self) -> &[Section] {
         &self.sections
+    }
+
+    pub fn version(&self) -> Option<i32> {
+        self.version
+    }
+
+    pub fn set_version(&mut self, version: Option<i32>) {
+        self.version = version;
+    }
+
+    /// Global byte offset -> LSP position in the document.
+    pub fn point_to_position(&self, byte: usize) -> tower_lsp::lsp_types::Position {
+        self.line_index.position_of(&self.text, byte)
+    }
+
+    /// LSP position -> global byte offset (char boundary).
+    pub fn position_to_byte(&self, position: tower_lsp::lsp_types::Position) -> Option<usize> {
+        self.line_index.byte_of(&self.text, position)
     }
 
     /// Global byte offset -> section index, or `None` outside any code block.

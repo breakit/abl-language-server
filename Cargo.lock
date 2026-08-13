@@ -1201,6 +1201,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "toml",
  "tower-lsp",
  "tree-sitter",
  "tree-sitter-abl 0.0.52 (git+https://github.com/usagi-coffee/tree-sitter-abl?tag=v0.0.52)",
