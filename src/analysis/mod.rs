@@ -11,8 +11,8 @@
 
 use std::collections::HashMap;
 
-use tree_sitter::Node;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Range};
+use tree_sitter::Node;
 
 use crate::document::WebSpeedDocument;
 
@@ -96,7 +96,9 @@ impl SectionAnalysis {
 
     /// Case-insensitive symbol lookup.
     pub fn find(&self, name: &str) -> Option<&Symbol> {
-        self.by_name.get(&name.to_ascii_lowercase()).map(|&i| &self.symbols[i])
+        self.by_name
+            .get(&name.to_ascii_lowercase())
+            .map(|&i| &self.symbols[i])
     }
 
     fn define(&mut self, name: &str, kind: SymbolKind, range: (usize, usize)) {
@@ -107,32 +109,115 @@ impl SectionAnalysis {
             return;
         }
         let i = self.symbols.len();
-        self.symbols.push(Symbol { name: name.to_string(), kind, range });
+        self.symbols.push(Symbol {
+            name: name.to_string(),
+            kind,
+            range,
+        });
         self.by_name.insert(lower, i);
     }
 }
 
-fn content_point(doc: &WebSpeedDocument, idx: usize, content_byte: usize) -> tower_lsp::lsp_types::Position {
+fn content_point(
+    doc: &WebSpeedDocument,
+    idx: usize,
+    content_byte: usize,
+) -> tower_lsp::lsp_types::Position {
     let sec = &doc.sections()[idx];
     doc.point_to_position(sec.content_start + content_byte)
 }
 
 /// Built-in ABL functions that never count as "unknown".
 pub const BUILTIN_FUNCTIONS: &[&str] = &[
-    "ABS", "ASC", "CANDIDATE-KEY", "CAPS", "CHR", "CODEPAGE", "COLUMN",
-    "CURRENT-CHANGED", "CURRENT-VALUE", "DATE", "DAY", "DECIMAL", "DYNAMIC-CURRENT-VALUE",
-    "DYNAMIC-FUNCTION", "DYNAMIC-NEW", "DYNAMIC-NEXT-VALUE", "DYNAMIC-PROPERTY",
-    "ENTRY", "ETIME", "EXP", "FILL", "FIRST", "FIRST-OF", "FLOOR", "FORMAT",
-    "FRAME-CURRENT-VALUE", "FRAME-DOWN", "FRAME-FIELD", "FRAME-LINE", "FRAME-ROW",
-    "GUID", "INDEX", "INTEGER", "ISO-DATE", "KBLABEL", "KEYWORD", "KEYWORD-ALL",
-    "LAST", "LAST-OF", "LC", "LENGTH", "LIST-EVENTS", "LIST-QUERY-ATTRS",
-    "LIST-SET-ATTRS", "LIST-WIDGETS", "LOGICAL", "LOOKUP", "MAXIMUM", "MEMBER",
-    "MESSAGE-LINES", "MINIMUM", "MONTH", "MTIME", "NEW", "NEXT-VALUE", "NUM-ENTRIES",
-    "NUM-RESULTS", "NUMBER", "OS-GETENV", "PAGE-NUMBER", "PAGE-SIZE", "PAGES",
-    "PROCESS-ARCH", "PROGRAM-NAME", "PROGRESS", "PROPATH", "PROVERSION", "RANDOM",
-    "RATIO", "RINDEX", "ROUND", "SDBNAME", "SEEK", "SESSION-VALUE", "SETUSERID",
-    "SIZE", "SQRT", "SSGET", "STRING", "SUBSTRING", "TODAY", "TRIM", "TRUNCATE",
-    "USERID", "VALID-EVENT", "VALID-HANDLE", "VALID-OBJECT", "WEEKDAY", "YEAR",
+    "ABS",
+    "ASC",
+    "CANDIDATE-KEY",
+    "CAPS",
+    "CHR",
+    "CODEPAGE",
+    "COLUMN",
+    "CURRENT-CHANGED",
+    "CURRENT-VALUE",
+    "DATE",
+    "DAY",
+    "DECIMAL",
+    "DYNAMIC-CURRENT-VALUE",
+    "DYNAMIC-FUNCTION",
+    "DYNAMIC-NEW",
+    "DYNAMIC-NEXT-VALUE",
+    "DYNAMIC-PROPERTY",
+    "ENTRY",
+    "ETIME",
+    "EXP",
+    "FILL",
+    "FIRST",
+    "FIRST-OF",
+    "FLOOR",
+    "FORMAT",
+    "FRAME-CURRENT-VALUE",
+    "FRAME-DOWN",
+    "FRAME-FIELD",
+    "FRAME-LINE",
+    "FRAME-ROW",
+    "GUID",
+    "INDEX",
+    "INTEGER",
+    "ISO-DATE",
+    "KBLABEL",
+    "KEYWORD",
+    "KEYWORD-ALL",
+    "LAST",
+    "LAST-OF",
+    "LC",
+    "LENGTH",
+    "LIST-EVENTS",
+    "LIST-QUERY-ATTRS",
+    "LIST-SET-ATTRS",
+    "LIST-WIDGETS",
+    "LOGICAL",
+    "LOOKUP",
+    "MAXIMUM",
+    "MEMBER",
+    "MESSAGE-LINES",
+    "MINIMUM",
+    "MONTH",
+    "MTIME",
+    "NEW",
+    "NEXT-VALUE",
+    "NUM-ENTRIES",
+    "NUM-RESULTS",
+    "NUMBER",
+    "OS-GETENV",
+    "PAGE-NUMBER",
+    "PAGE-SIZE",
+    "PAGES",
+    "PROCESS-ARCH",
+    "PROGRAM-NAME",
+    "PROGRESS",
+    "PROPATH",
+    "PROVERSION",
+    "RANDOM",
+    "RATIO",
+    "RINDEX",
+    "ROUND",
+    "SDBNAME",
+    "SEEK",
+    "SESSION-VALUE",
+    "SETUSERID",
+    "SIZE",
+    "SQRT",
+    "SSGET",
+    "STRING",
+    "SUBSTRING",
+    "TODAY",
+    "TRIM",
+    "TRUNCATE",
+    "USERID",
+    "VALID-EVENT",
+    "VALID-HANDLE",
+    "VALID-OBJECT",
+    "WEEKDAY",
+    "YEAR",
 ];
 
 fn is_builtin_function(name: &str) -> bool {
@@ -169,7 +254,7 @@ fn name_of<'t>(node: Node<'t>, content: &str) -> Option<(String, (usize, usize))
     Some((name.utf8_text(content.as_bytes()).ok()?.to_string(), range))
 }
 
-fn walk_definitions<'t, 'a>(node: Node<'t>, content: &str, a: &mut SectionAnalysis) {
+fn walk_definitions<'t>(node: Node<'t>, content: &str, a: &mut SectionAnalysis) {
     match node.kind() {
         "variable_definition" => {
             if let Some((name, range)) = name_of(node, content) {
@@ -233,13 +318,14 @@ fn is_excluded_parent(kind: &str) -> bool {
         || kind.starts_with("message_preprocessor_directive")
 }
 
-fn walk_references<'t, 'a>(node: Node<'t>, content: &str, a: &mut SectionAnalysis) {
+fn walk_references<'t>(node: Node<'t>, content: &str, a: &mut SectionAnalysis) {
     match node.kind() {
         "variable" => {
-            if let Some((name, range)) = name_of(node, content) {
-                if !name.contains('.') && a.find(&name).is_none() {
-                    a.unknown_variables.push(UnknownVariable { name, range });
-                }
+            if let Some((name, range)) = name_of(node, content)
+                && !name.contains('.')
+                && a.find(&name).is_none()
+            {
+                a.unknown_variables.push(UnknownVariable { name, range });
             }
         }
         "identifier" => {
@@ -251,9 +337,8 @@ fn walk_references<'t, 'a>(node: Node<'t>, content: &str, a: &mut SectionAnalysi
                 if is_excluded_parent(parent.kind()) {
                     return;
                 }
-                let name = match node.utf8_text(content.as_bytes()) {
-                    Ok(n) => n,
-                    Err(_) => return,
+                let Ok(name) = node.utf8_text(content.as_bytes()) else {
+                    return;
                 };
                 let name = name.to_string();
                 if !name.contains('.') && a.find(&name).is_none() {
@@ -265,17 +350,18 @@ fn walk_references<'t, 'a>(node: Node<'t>, content: &str, a: &mut SectionAnalysi
             }
         }
         "function_call" => {
-            if let Some(fn_node) = node.child_by_field_name("function") {
-                if fn_node.kind() == "identifier" {
-                    if let Some(name) = fn_node.utf8_text(content.as_bytes()).ok() {
-                        let name = name.to_string();
-                        if a.find(&name).is_none() && !is_builtin_function(&name) && !name.contains('.') {
-                            a.unknown_functions.push(UnknownFunction {
-                                name,
-                                range: (fn_node.start_byte(), fn_node.end_byte()),
-                            });
-                        }
-                    }
+            let Some(fn_node) = node.child_by_field_name("function") else {
+                return;
+            };
+            if fn_node.kind() == "identifier"
+                && let Ok(name) = fn_node.utf8_text(content.as_bytes())
+            {
+                let name = name.to_string();
+                if a.find(&name).is_none() && !is_builtin_function(&name) && !name.contains('.') {
+                    a.unknown_functions.push(UnknownFunction {
+                        name,
+                        range: (fn_node.start_byte(), fn_node.end_byte()),
+                    });
                 }
             }
         }

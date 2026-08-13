@@ -39,5 +39,8 @@ pub fn tokens_for(doc: &crate::document::WebSpeedDocument) -> Option<SemanticTok
         crate::semantic::collect(doc, idx, tree.root_node(), &mut candidates);
     }
     let data = crate::semantic::delta_encode(&mut candidates);
-    Some(SemanticTokensResult::Tokens(SemanticTokens { result_id: None, data }))
+    Some(SemanticTokensResult::Tokens(SemanticTokens {
+        result_id: None,
+        data,
+    }))
 }

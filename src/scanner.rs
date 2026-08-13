@@ -61,16 +61,20 @@ fn find_ci(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
 /// Byte-exact substring search.
 fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     debug_assert!(!needle.is_empty());
-    haystack.get(from..)?.windows(needle.len()).position(|w| w == needle).map(|i| i + from)
+    haystack
+        .get(from..)?
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .map(|i| i + from)
 }
 
 /// Whether the byte following an `<script` match makes it a tag start
 /// (whitespace, `>`, `/`, or EOF) rather than e.g. `<scripting>`.
 fn is_tag_boundary(bytes: &[u8], i: usize) -> bool {
-    match bytes.get(i) {
-        None | Some(b' ' | b'\t' | b'\r' | b'\n' | b'>' | b'/') => true,
-        _ => false,
-    }
+    matches!(
+        bytes.get(i),
+        None | Some(b' ' | b'\t' | b'\r' | b'\n' | b'>' | b'/')
+    )
 }
 
 /// Byte index just past the `>` that terminates the `<script ...>` open tag.
@@ -260,7 +264,14 @@ mod tests {
     fn single_speedscript_block() {
         let src = "<html><body><% message \"hi\". %>world</body></html>";
         let s = scan(src);
-        assert_eq!(kinds(&s), vec![SectionKind::Html, SectionKind::SpeedScript, SectionKind::Html]);
+        assert_eq!(
+            kinds(&s),
+            vec![
+                SectionKind::Html,
+                SectionKind::SpeedScript,
+                SectionKind::Html
+            ]
+        );
         let sp = &s[1];
         assert_eq!(&src[sp.content_start..sp.content_end], " message \"hi\". ");
         assert_eq!(&src[sp.start..sp.end], "<% message \"hi\". %>");
@@ -283,12 +294,24 @@ mod tests {
         let s = scan(src);
         assert_eq!(
             kinds(&s),
-            vec![SectionKind::Html, SectionKind::SpeedScript, SectionKind::Html, SectionKind::SpeedScript, SectionKind::Html]
+            vec![
+                SectionKind::Html,
+                SectionKind::SpeedScript,
+                SectionKind::Html,
+                SectionKind::SpeedScript,
+                SectionKind::Html
+            ]
         );
-        assert_eq!(&src[s[1].content_start..s[1].content_end], " message \"a %> b\". ");
+        assert_eq!(
+            &src[s[1].content_start..s[1].content_end],
+            " message \"a %> b\". "
+        );
         assert_eq!(s[1].end, s[2].start);
         assert_eq!(&src[s[2].content_start..s[2].content_end], "y");
-        assert_eq!(&src[s[3].content_start..s[3].content_end], " message \"c\". ");
+        assert_eq!(
+            &src[s[3].content_start..s[3].content_end],
+            " message \"c\". "
+        );
     }
 
     #[test]
@@ -303,7 +326,10 @@ mod tests {
                 SectionKind::Javascript
             ]
         );
-        assert_eq!(&src[s[0].content_start..s[0].content_end], "var a = 1; // <% not a block\nfoo();");
+        assert_eq!(
+            &src[s[0].content_start..s[0].content_end],
+            "var a = 1; // <% not a block\nfoo();"
+        );
         assert_eq!(&src[s[1].content_start..s[1].content_end], " run x.p. ");
         assert_eq!(&src[s[2].content_start..s[2].content_end], "bar()");
     }
@@ -312,9 +338,19 @@ mod tests {
     fn script_with_attributes() {
         let src = "<!--x--><script type=\"text/javascript\" src=\"a.js\"></script><p>t</p>";
         let s = scan(src);
-        assert_eq!(kinds(&s), vec![SectionKind::Html, SectionKind::Javascript, SectionKind::Html]);
+        assert_eq!(
+            kinds(&s),
+            vec![
+                SectionKind::Html,
+                SectionKind::Javascript,
+                SectionKind::Html
+            ]
+        );
         let js = &s[1];
-        assert_eq!(&src[js.start..js.end], "<script type=\"text/javascript\" src=\"a.js\"></script>");
+        assert_eq!(
+            &src[js.start..js.end],
+            "<script type=\"text/javascript\" src=\"a.js\"></script>"
+        );
         assert_eq!(js.content_start, js.content_end);
     }
 
@@ -322,7 +358,10 @@ mod tests {
     fn uppercase_script_tags() {
         let src = "<SCRIPT>let x = 1;</SCRIPT><% message \"a\". %>";
         let s = scan(src);
-        assert_eq!(kinds(&s), vec![SectionKind::Javascript, SectionKind::SpeedScript]);
+        assert_eq!(
+            kinds(&s),
+            vec![SectionKind::Javascript, SectionKind::SpeedScript]
+        );
         assert_eq!(&src[s[0].content_start..s[0].content_end], "let x = 1;");
     }
 
@@ -330,7 +369,14 @@ mod tests {
     fn comment_wrapped_speedscript() {
         let src = "<!--<% message \"hi\". %>-->";
         let s = scan(src);
-        assert_eq!(kinds(&s), vec![SectionKind::Html, SectionKind::SpeedScript, SectionKind::Html]);
+        assert_eq!(
+            kinds(&s),
+            vec![
+                SectionKind::Html,
+                SectionKind::SpeedScript,
+                SectionKind::Html
+            ]
+        );
         assert_eq!(s[0].end, 4);
         assert_eq!(&src[s[1].start..s[1].end], "<% message \"hi\". %>");
         assert_eq!(s[2].start, s[1].end);
@@ -348,7 +394,10 @@ mod tests {
 
     #[test]
     fn no_code_blocks() {
-        assert_eq!(kinds(&scan("<html><body>plain</body></html>")), vec![SectionKind::Html]);
+        assert_eq!(
+            kinds(&scan("<html><body>plain</body></html>")),
+            vec![SectionKind::Html]
+        );
     }
 
     #[test]

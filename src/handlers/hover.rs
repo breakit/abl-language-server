@@ -14,7 +14,9 @@ pub fn word_at(
 ) -> Option<(String, tower_lsp::lsp_types::Range)> {
     let sec = &doc.sections()[idx];
     let byte = doc.position_to_byte(position)?;
-    let content_byte = byte.saturating_sub(sec.content_start).min(sec.content_end - sec.content_start);
+    let content_byte = byte
+        .saturating_sub(sec.content_start)
+        .min(sec.content_end - sec.content_start);
     let content = sec.content(&doc.text);
     let b = content.as_bytes();
     if content_byte < content.len() && !b[content_byte].is_ascii_alphanumeric() {

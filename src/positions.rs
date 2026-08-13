@@ -85,7 +85,10 @@ impl LineIndex {
     pub fn point_of(&self, text: &str, byte: usize) -> tree_sitter::Point {
         let byte = byte.min(text.len());
         let line = self.line_of(byte);
-        tree_sitter::Point { row: line as usize, column: byte - self.starts[line] }
+        tree_sitter::Point {
+            row: line,
+            column: byte - self.starts[line],
+        }
     }
 }
 
@@ -125,8 +128,32 @@ mod tests {
     fn column_beyond_line_end_clamps() {
         let t = "ab\ncd";
         let idx = LineIndex::new(t);
-        assert_eq!(idx.byte_of(t, Position { line: 0, character: 50 }), Some(2));
-        assert_eq!(idx.byte_of(t, Position { line: 9, character: 0 }), None);
-        assert_eq!(idx.position_of(t, t.len()), Position { line: 1, character: 2 });
+        assert_eq!(
+            idx.byte_of(
+                t,
+                Position {
+                    line: 0,
+                    character: 50
+                }
+            ),
+            Some(2)
+        );
+        assert_eq!(
+            idx.byte_of(
+                t,
+                Position {
+                    line: 9,
+                    character: 0
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            idx.position_of(t, t.len()),
+            Position {
+                line: 1,
+                character: 2
+            }
+        );
     }
 }

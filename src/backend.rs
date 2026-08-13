@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-use tower_lsp::{async_trait, Client, LanguageServer};
+use tower_lsp::{Client, LanguageServer, async_trait};
 
 use crate::config::{self, ServerConfig};
 use crate::document::WebSpeedDocument;
@@ -50,7 +50,10 @@ impl Backend {
         let cfg = config::load(root);
         log::info!(
             "config: {} diagnostics={} formatting={}",
-            cfg.source.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "<defaults>".to_string()),
+            cfg.source
+                .as_deref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "<defaults>".to_string()),
             cfg.lsp.diagnostics.enabled,
             cfg.lsp.formatting.enabled
         );
@@ -61,7 +64,10 @@ impl Backend {
         let (diags, version) = {
             let guard = self.state.documents.get(uri);
             let Some(doc) = guard else { return };
-            (crate::handlers::diagnostics::collect(doc.value()), doc.version())
+            (
+                crate::handlers::diagnostics::collect(doc.value()),
+                doc.version(),
+            )
         };
         let _ = self
             .client
@@ -89,21 +95,19 @@ impl LanguageServer for Backend {
         self.reload_config(&root).await;
 
         let capabilities = ServerCapabilities {
-            text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                TextDocumentSyncKind::FULL,
-            )),
+            text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
             completion_provider: Some(CompletionOptions::default()),
             hover_provider: Some(HoverProviderCapability::Simple(true)),
             definition_provider: Some(OneOf::Left(true)),
             document_formatting_provider: Some(OneOf::Left(true)),
-            semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
-                SemanticTokensOptions {
+            semantic_tokens_provider: Some(
+                SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
                     legend: crate::handlers::semantic_tokens::legend(),
                     full: Some(SemanticTokensFullOptions::Bool(true)),
                     range: None,
                     work_done_progress_options: Default::default(),
-                },
-            )),
+                }),
+            ),
             ..Default::default()
         };
 
@@ -162,7 +166,8 @@ impl LanguageServer for Backend {
             return;
         }
         if let Some(doc) = self.state.documents.get(&uri) {
-            crate::handlers::diagnostics::run_lint(&self.client, &uri, doc.value(), &self.state).await;
+            crate::handlers::diagnostics::run_lint(&self.client, &uri, doc.value(), &self.state)
+                .await;
         }
         self.publish_diagnostics_for(&uri).await;
     }

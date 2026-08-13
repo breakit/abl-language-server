@@ -10,12 +10,12 @@
 use std::process::Stdio;
 use std::sync::Arc;
 
-use tower_lsp::lsp_types::*;
 use tower_lsp::Client;
+use tower_lsp::lsp_types::*;
 
 use crate::analysis;
 use crate::backend::BackendState;
-use crate::document::{collect_error_nodes, WebSpeedDocument};
+use crate::document::{WebSpeedDocument, collect_error_nodes};
 use crate::scanner::SectionKind;
 
 pub fn source() -> &'static str {
@@ -77,8 +77,15 @@ pub async fn run_lint(
     if !cfg.lsp.diagnostics.enabled || !cfg.lsp.diagnostics.lint {
         return;
     }
-    let Some(path) = uri.to_file_path().ok() else { return };
-    let binary = cfg.lsp.diagnostics.lint_binary.as_deref().unwrap_or("abl-lint");
+    let Some(path) = uri.to_file_path().ok() else {
+        return;
+    };
+    let binary = cfg
+        .lsp
+        .diagnostics
+        .lint_binary
+        .as_deref()
+        .unwrap_or("abl-lint");
     let output = tokio::process::Command::new(binary)
         .arg("check")
         .arg(&path)
@@ -94,9 +101,7 @@ pub async fn run_lint(
     let stdout = String::from_utf8_lossy(&output.stdout);
     let diags = parse_lint_output(&stdout);
     if !diags.is_empty() {
-        let _ = client
-            .publish_diagnostics(uri.clone(), diags, None)
-            .await;
+        let _ = client.publish_diagnostics(uri.clone(), diags, None).await;
     }
 }
 
@@ -122,8 +127,14 @@ pub fn parse_lint_output(stdout: &str) -> Vec<Diagnostic> {
             };
             Some(Diagnostic {
                 range: Range {
-                    start: Position { line: line.saturating_sub(1), character: col.saturating_sub(1) },
-                    end: Position { line: line.saturating_sub(1), character: col },
+                    start: Position {
+                        line: line.saturating_sub(1),
+                        character: col.saturating_sub(1),
+                    },
+                    end: Position {
+                        line: line.saturating_sub(1),
+                        character: col,
+                    },
                 },
                 severity: Some(severity),
                 source: Some("abl-lint".to_string()),
@@ -145,9 +156,18 @@ mod tests {
                    path.p:2:1: public_variable [warning]: other\n";
         let diags = parse_lint_output(out);
         assert_eq!(diags.len(), 2);
-        assert_eq!(diags[0].range.start, Position { line: 11, character: 4 });
+        assert_eq!(
+            diags[0].range.start,
+            Position {
+                line: 11,
+                character: 4
+            }
+        );
         assert_eq!(diags[0].severity, Some(DiagnosticSeverity::ERROR));
-        assert_eq!(diags[0].code, Some(NumberOrString::String("block_structure".into())));
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String("block_structure".into()))
+        );
         assert_eq!(diags[1].severity, Some(DiagnosticSeverity::WARNING));
     }
 

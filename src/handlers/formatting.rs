@@ -39,9 +39,5 @@ pub fn format_document(doc: &WebSpeedDocument, idempotence: bool) -> Option<Vec<
             new_text: formatted,
         });
     }
-    if edits.is_empty() {
-        None
-    } else {
-        Some(edits)
-    }
+    if edits.is_empty() { None } else { Some(edits) }
 }

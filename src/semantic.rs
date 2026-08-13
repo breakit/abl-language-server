@@ -78,9 +78,13 @@ fn is_preprocessor(kind: &str) -> bool {
 pub fn collect(doc: &WebSpeedDocument, idx: usize, node: Node, out: &mut Vec<Candidate>) {
     if let Some(token_type) = classify(node) {
         let range = doc.node_range(idx, node);
-        let length = range.end.character.saturating_sub(range.start.character) as u32;
+        let length = range.end.character.saturating_sub(range.start.character);
         if length > 0 {
-            out.push(Candidate { position: range.start, length, token_type });
+            out.push(Candidate {
+                position: range.start,
+                length,
+                token_type,
+            });
         }
     }
     let mut cursor = node.walk();

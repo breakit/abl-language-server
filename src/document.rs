@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use tree_sitter::{Node, Parser, Point, Tree};
 
 use crate::positions::LineIndex;
-use crate::scanner::{scan, Section, SectionKind};
+use crate::scanner::{Section, SectionKind, scan};
 
 /// Builds and reuses the JavaScript parser (tree-sitter parsers are stateful).
 struct JsParser(Mutex<Parser>);
@@ -111,7 +111,10 @@ impl WebSpeedDocument {
     }
 
     /// LSP position -> (section index, point within that section's content).
-    pub fn resolve_position(&self, position: tower_lsp::lsp_types::Position) -> Option<(usize, Point)> {
+    pub fn resolve_position(
+        &self,
+        position: tower_lsp::lsp_types::Position,
+    ) -> Option<(usize, Point)> {
         let byte = self.line_index.byte_of(&self.text, position)?;
         let idx = self.section_index_at_byte(byte)?;
         let sec = &self.sections[idx];
@@ -127,7 +130,9 @@ impl WebSpeedDocument {
     /// document. The section's content start byte is `sections[idx].content_start`.
     pub fn node_range(&self, idx: usize, node: Node) -> tower_lsp::lsp_types::Range {
         let sec = &self.sections[idx];
-        let content_index = self.content_indexes[idx].as_ref().expect("code section index");
+        let content_index = self.content_indexes[idx]
+            .as_ref()
+            .expect("code section index");
         let start_byte = sec.content_start + self.point_byte(content_index, node.start_position());
         let end_byte = sec.content_start + self.point_byte(content_index, node.end_position());
         tower_lsp::lsp_types::Range {
@@ -174,9 +179,17 @@ mod tests {
         doc.update("<script>let a = 1;</script><% message \"hi\". %>".to_string());
         let tree_count = doc.trees.iter().flatten().count();
         assert_eq!(tree_count, 2);
-        let idx = doc.sections.iter().position(|s| s.kind == SectionKind::SpeedScript).unwrap();
+        let idx = doc
+            .sections
+            .iter()
+            .position(|s| s.kind == SectionKind::SpeedScript)
+            .unwrap();
         let tree = doc.tree(idx).unwrap();
-        assert!(!tree.root_node().has_error(), "{}", tree.root_node().to_sexp());
+        assert!(
+            !tree.root_node().has_error(),
+            "{}",
+            tree.root_node().to_sexp()
+        );
         let content = doc.sections[idx].content(&doc.text);
         assert!(content.contains("message"));
     }
@@ -232,14 +245,20 @@ mod tests {
         doc.update("<script>ab()</script><% message \"hi\". %>".to_string());
         // Cursor inside the <script> open tag clamps to JS content start.
         let (idx, point) = doc
-            .resolve_position(tower_lsp::lsp_types::Position { line: 0, character: 2 })
+            .resolve_position(tower_lsp::lsp_types::Position {
+                line: 0,
+                character: 2,
+            })
             .unwrap();
         assert_eq!(doc.sections[idx].kind, SectionKind::Javascript);
         assert_eq!((point.row, point.column), (0, 0));
 
         // Cursor inside the SpeedScript block resolves to its content.
         let (idx, point) = doc
-            .resolve_position(tower_lsp::lsp_types::Position { line: 0, character: 24 })
+            .resolve_position(tower_lsp::lsp_types::Position {
+                line: 0,
+                character: 24,
+            })
             .unwrap();
         assert_eq!(doc.sections[idx].kind, SectionKind::SpeedScript);
         assert_eq!((point.row, point.column), (0, 1));
@@ -249,7 +268,10 @@ mod tests {
     fn html_positions_resolve_to_none() {
         let mut doc = WebSpeedDocument::new();
         doc.update("<p>text</p><% a. %>".to_string());
-        let pos = tower_lsp::lsp_types::Position { line: 0, character: 3 };
+        let pos = tower_lsp::lsp_types::Position {
+            line: 0,
+            character: 3,
+        };
         assert!(doc.resolve_position(pos).is_none());
     }
 }

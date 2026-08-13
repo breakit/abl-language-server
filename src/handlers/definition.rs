@@ -5,7 +5,10 @@ use tower_lsp::lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Locatio
 use crate::analysis::SymbolKind;
 use crate::backend::Backend;
 
-pub async fn goto_definition(backend: &Backend, params: GotoDefinitionParams) -> Option<GotoDefinitionResponse> {
+pub async fn goto_definition(
+    backend: &Backend,
+    params: GotoDefinitionParams,
+) -> Option<GotoDefinitionResponse> {
     let text_document_position = &params.text_document_position_params;
     let uri: &Url = &text_document_position.text_document.uri;
     let doc = backend.state.documents.get(uri)?;

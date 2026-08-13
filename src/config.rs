@@ -51,7 +51,10 @@ pub struct CompletionConfig {
 
 impl Default for CompletionConfig {
     fn default() -> Self {
-        CompletionConfig { enabled: true, keywords: true }
+        CompletionConfig {
+            enabled: true,
+            keywords: true,
+        }
     }
 }
 
@@ -66,7 +69,10 @@ pub struct FormattingConfig {
 
 impl Default for FormattingConfig {
     fn default() -> Self {
-        FormattingConfig { enabled: true, idempotence: true }
+        FormattingConfig {
+            enabled: true,
+            idempotence: true,
+        }
     }
 }
 
@@ -82,7 +88,7 @@ impl Default for SemanticTokensConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct LspConfig {
     #[serde(default)]
     pub diagnostics: DiagnosticsConfig,
@@ -95,18 +101,6 @@ pub struct LspConfig {
     /// Include search roots for `{...}` references (future).
     #[serde(default)]
     pub propath: Vec<String>,
-}
-
-impl Default for LspConfig {
-    fn default() -> Self {
-        LspConfig {
-            diagnostics: DiagnosticsConfig::default(),
-            completion: CompletionConfig::default(),
-            formatting: FormattingConfig::default(),
-            semantic_tokens: SemanticTokensConfig::default(),
-            propath: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -147,8 +141,10 @@ fn find_config(root: &Path) -> Option<PathBuf> {
 /// Loads server config from `<root>/abl.toml` (or `.config/abl.toml`),
 /// falling back to defaults when absent or unreadable.
 pub fn load(root: &Path) -> ServerConfig {
-    let mut cfg = ServerConfig::default();
-    cfg.base_dir = root.to_path_buf();
+    let mut cfg = ServerConfig {
+        base_dir: root.to_path_buf(),
+        ..ServerConfig::default()
+    };
     let Some(path) = find_config(root) else {
         return cfg;
     };
