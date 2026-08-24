@@ -137,7 +137,107 @@ pub fn find_db_field_matches(
             }
         }
     }
+    out.sort_by(|a, b| a.table.cmp(&b.table));
     out
+}
+
+pub fn find_db_table_field_hover(
+    root: Node<'_>,
+    text: &str,
+    offset: usize,
+    db_fields_by_table: &DashMap<String, Vec<DbFieldInfo>>,
+) -> Option<Hover> {
+    let (qualifier_upper, field_upper, field_display) =
+        extract_qualified_field_at_offset(text, offset)?;
+
+    let mut mappings = Vec::new();
+    collect_buffer_mappings(root, text.as_bytes(), &mut mappings);
+    let table_symbol = mappings
+        .into_iter()
+        .find(|mapping| mapping.alias.eq_ignore_ascii_case(&qualifier_upper))
+        .map(|mapping| mapping.table.trim().to_string())
+        .unwrap_or(qualifier_upper);
+
+    let mut matches =
+        find_db_field_matches_for_table(db_fields_by_table, &table_symbol, &field_upper, true);
+    if matches.is_empty() {
+        matches =
+            find_db_field_matches_for_table(db_fields_by_table, &table_symbol, &field_upper, false);
+    }
+
+    if matches.len() == 1 {
+        return Some(db_field_hover(&matches[0]));
+    }
+    if matches.is_empty() {
+        return None;
+    }
+
+    let preview = matches
+        .iter()
+        .take(8)
+        .map(|matched| format!("- `{}`", matched.table))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let suffix = if matches.len() > 8 { "\n- ..." } else { "" };
+    Some(markdown_hover(format!(
+        "**DB Field** `{}`\n\nFound in matching tables:\n{}{}",
+        field_display, preview, suffix
+    )))
+}
+
+fn find_db_field_matches_for_table(
+    db_fields_by_table: &DashMap<String, Vec<DbFieldInfo>>,
+    table_symbol: &str,
+    field_symbol: &str,
+    require_exact_table: bool,
+) -> Vec<DbFieldMatch> {
+    let table_tail = unqualified_table_name(table_symbol);
+    let mut matches = db_fields_by_table
+        .iter()
+        .filter(|entry| {
+            if require_exact_table {
+                entry.key().eq_ignore_ascii_case(table_symbol)
+            } else {
+                unqualified_table_name(entry.key()).eq_ignore_ascii_case(table_tail)
+            }
+        })
+        .flat_map(|entry| {
+            entry
+                .value()
+                .iter()
+                .filter(|field| field.name.eq_ignore_ascii_case(field_symbol))
+                .cloned()
+                .map(|field| DbFieldMatch {
+                    table: entry.key().clone(),
+                    field,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by(|a, b| a.table.cmp(&b.table));
+    matches
+}
+
+fn unqualified_table_name(name: &str) -> &str {
+    name.trim().rsplit('.').next().unwrap_or_default().trim()
+}
+
+pub fn db_field_hover(matched: &DbFieldMatch) -> Hover {
+    let mut lines = vec![format!("**DB Field** `{}`", matched.field.name)];
+    lines.push(format!("Table: `{}`", matched.table));
+    if let Some(ty) = &matched.field.field_type {
+        lines.push(format!("Type: `{}`", ty));
+    }
+    if let Some(label) = &matched.field.label {
+        lines.push(format!("Label: {}", label));
+    }
+    if let Some(format) = &matched.field.format {
+        lines.push(format!("Format: {}", format));
+    }
+    if let Some(desc) = &matched.field.description {
+        lines.push(format!("Description: {}", desc));
+    }
+    markdown_hover(lines.join("\n\n"))
 }
 
 pub fn find_local_table_field_hover(root: Node<'_>, text: &str, offset: usize) -> Option<Hover> {
@@ -282,7 +382,7 @@ fn is_ident_char(b: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_qualified_field_at_offset, find_db_field_matches,
+        extract_qualified_field_at_offset, find_db_field_matches, find_db_table_field_hover,
         find_local_table_field_hover_by_symbol, symbol_at_offset,
     };
     use crate::analysis::parse_abl;
@@ -377,5 +477,66 @@ DEFINE TEMP-TABLE ZM_CENY NO-UNDO
         assert_eq!(matches.len(), 2);
         assert!(matches.iter().any(|m| m.table == "Customer"));
         assert!(matches.iter().any(|m| m.table == "Order"));
+    }
+
+    #[test]
+    fn qualified_db_field_hover_uses_its_table() {
+        let src = "DISPLAY Debtor.LastModifiedDate.";
+        let tree = parse_abl(src);
+        let map = DashMap::<String, Vec<DbFieldInfo>>::new();
+        for table in ["Debtor", "Creditor"] {
+            map.insert(
+                table.to_string(),
+                vec![DbFieldInfo {
+                    name: "LastModifiedDate".to_string(),
+                    field_type: Some("DATETIME-TZ".to_string()),
+                    format: None,
+                    label: None,
+                    description: None,
+                }],
+            );
+        }
+
+        let offset = src.find("LastModifiedDate").expect("field offset") + 2;
+        let hover =
+            find_db_table_field_hover(tree.root_node(), src, offset, &map).expect("field hover");
+        let HoverContents::Markup(markup) = hover.contents else {
+            panic!("expected markdown hover");
+        };
+
+        assert!(markup.value.contains("Table: `Debtor`"));
+        assert!(markup.value.contains("Type: `DATETIME-TZ`"));
+        assert!(!markup.value.contains("Found in tables"));
+        assert!(!markup.value.contains("Creditor"));
+    }
+
+    #[test]
+    fn qualified_db_field_hover_resolves_buffer_alias() {
+        let src = r#"
+DEFINE BUFFER bDebtor FOR Debtor.
+DISPLAY bDebtor.LastModifiedDate.
+"#;
+        let tree = parse_abl(src);
+        let map = DashMap::<String, Vec<DbFieldInfo>>::new();
+        map.insert(
+            "Debtor".to_string(),
+            vec![DbFieldInfo {
+                name: "LastModifiedDate".to_string(),
+                field_type: Some("DATETIME-TZ".to_string()),
+                format: None,
+                label: None,
+                description: None,
+            }],
+        );
+
+        let offset = src.rfind("LastModifiedDate").expect("field offset") + 2;
+        let hover =
+            find_db_table_field_hover(tree.root_node(), src, offset, &map).expect("field hover");
+        let HoverContents::Markup(markup) = hover.contents else {
+            panic!("expected markdown hover");
+        };
+
+        assert!(markup.value.contains("Table: `Debtor`"));
+        assert!(markup.value.contains("Type: `DATETIME-TZ`"));
     }
 }

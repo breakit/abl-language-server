@@ -13,8 +13,9 @@ use crate::analysis::functions::{
     find_function_signature_from_includes,
 };
 use crate::analysis::hover::{
-    find_db_field_matches, find_local_table_field_hover, find_local_table_field_hover_by_symbol,
-    function_signature_hover, is_comment_offset, markdown_hover, symbol_at_offset,
+    db_field_hover, find_db_field_matches, find_db_table_field_hover, find_local_table_field_hover,
+    find_local_table_field_hover_by_symbol, function_signature_hover, is_comment_offset,
+    markdown_hover, symbol_at_offset,
 };
 use crate::analysis::includes::{
     collect_include_sites_from_tree, include_site_matches_file_offset,
@@ -256,6 +257,11 @@ impl Backend {
         {
             return Ok(Some(local_field_hover));
         }
+        if let Some(db_field_hover) =
+            find_db_table_field_hover(tree.root_node(), &text, offset, &self.db_fields_by_table)
+        {
+            return Ok(Some(db_field_hover));
+        }
         if let Some(local_field_hover) =
             find_local_table_field_hover_by_symbol(tree.root_node(), &text, &symbol)
         {
@@ -265,22 +271,7 @@ impl Backend {
         let field_matches = find_db_field_matches(&self.db_fields_by_table, &symbol_upper);
         if !field_matches.is_empty() {
             if field_matches.len() == 1 {
-                let m = &field_matches[0];
-                let mut lines = vec![format!("**DB Field** `{}`", m.field.name)];
-                lines.push(format!("Table: `{}`", m.table));
-                if let Some(ty) = &m.field.field_type {
-                    lines.push(format!("Type: `{}`", ty));
-                }
-                if let Some(label) = &m.field.label {
-                    lines.push(format!("Label: {}", label));
-                }
-                if let Some(format) = &m.field.format {
-                    lines.push(format!("Format: {}", format));
-                }
-                if let Some(desc) = &m.field.description {
-                    lines.push(format!("Description: {}", desc));
-                }
-                return Ok(Some(markdown_hover(lines.join("\n\n"))));
+                return Ok(Some(db_field_hover(&field_matches[0])));
             }
 
             let preview = field_matches
