@@ -2,7 +2,7 @@
 
 Language Server Protocol (LSP) implementation for ABL (OpenEdge Advanced Business Language), supports parser-based language features for ABL and optional DB schema integration via `.df` dump files.
 
-The language server supports optional document formatting (auto-indent only). Formatting is disabled by default.
+The language server supports optional parser-aware document formatting. Formatting is disabled by default.
 
 ## Extensions
 
@@ -30,7 +30,7 @@ The language server supports optional document formatting (auto-indent only). Fo
 | Hover: functions                      | Signature with parameters + return type, include-aware, ambient-aware                                         |
 | Hover: DB schema                      | Table / field / index; field metadata includes type/label/format/description                                  |
 | Semantic tokens                       | Highlights DB table identifiers (`token type: type`)                                                          |
-| Formatting (auto-indent)              | Parser-aware indentation only; guarded by AST-shape check and optional idempotence check                      |
+| Formatting                            | Indentation, whitespace cleanup, and width-aware `FIND`, `IF`, and `FOR EACH` layout; AST-shape guarded       |
 
 ## Configuration (`abl.toml`)
 
@@ -82,6 +82,12 @@ enabled = true
 enabled = false
 indent_size = 2
 use_tabs = false
+trim_trailing_whitespace = true
+insert_final_newline = true
+trim_final_newlines = true
+max_consecutive_blank_lines = 1
+line_ending = "preserve"
+line_width = 100
 idempotence = true
 ```
 
@@ -102,6 +108,12 @@ idempotence = true
 | `formatting.enabled`      | `bool`               | `false` | Enables/disables `textDocument/formatting` response                                    |
 | `formatting.indent_size`  | `usize`              | `2`     | Spaces per indent level for formatter fallback/default behavior                        |
 | `formatting.use_tabs`      | `bool`               | `false` | Prefer tabs for indentation (LSP editor options may override per request)             |
+| `formatting.trim_trailing_whitespace` | `bool` | `true` | Removes spaces and tabs at the end of lines; LSP editor options may override per request |
+| `formatting.insert_final_newline` | `bool` | `true` | Ensures non-empty files end with a newline; LSP editor options may override per request |
+| `formatting.trim_final_newlines` | `bool` | `true` | Removes extra newlines at the end of the file; LSP editor options may override per request |
+| `formatting.max_consecutive_blank_lines` | `usize` | `1` | Maximum number of consecutive blank lines                                             |
+| `formatting.line_ending` | `"preserve" \| "lf" \| "crlf"` | `"preserve"` | Preserves existing endings or normalizes them throughout the document                  |
+| `formatting.line_width` | `usize` | `100` | Wraps supported statements beyond this width and collapses them when they fit; `0` disables both |
 | `formatting.idempotence`   | `bool`               | `true`  | Runs second-pass formatting equality check before applying edits                       |
 | `dumpfile`                | `string \| string[]` | `[]`    | Path(s) or wildcard patterns for `.df` dump files; relative paths resolve from the config file that defines them |
 | `ambient.builtin`         | `bool`               | `true`  | Enables/disables the built-in bundled ambient ABL declarations                         |

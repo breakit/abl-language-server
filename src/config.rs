@@ -5,6 +5,8 @@ use std::path::Component;
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::InitializeParams;
 
+use crate::analysis::formatting::{FormatterOptions, LineEnding};
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct AblConfig {
@@ -93,16 +95,44 @@ pub struct FormattingConfig {
     pub enabled: bool,
     pub indent_size: usize,
     pub use_tabs: bool,
+    pub trim_trailing_whitespace: bool,
+    pub insert_final_newline: bool,
+    pub trim_final_newlines: bool,
+    pub max_consecutive_blank_lines: usize,
+    pub line_ending: LineEnding,
+    pub line_width: usize,
     pub idempotence: bool,
 }
 
 impl Default for FormattingConfig {
     fn default() -> Self {
+        let options = FormatterOptions::default();
         Self {
             enabled: false,
-            indent_size: 2,
-            use_tabs: false,
+            indent_size: options.indent_size,
+            use_tabs: options.use_tabs,
+            trim_trailing_whitespace: options.trim_trailing_whitespace,
+            insert_final_newline: options.insert_final_newline,
+            trim_final_newlines: options.trim_final_newlines,
+            max_consecutive_blank_lines: options.max_consecutive_blank_lines,
+            line_ending: options.line_ending,
+            line_width: options.line_width,
             idempotence: true,
+        }
+    }
+}
+
+impl FormattingConfig {
+    pub fn formatter_options(&self) -> FormatterOptions {
+        FormatterOptions {
+            indent_size: self.indent_size,
+            use_tabs: self.use_tabs,
+            trim_trailing_whitespace: self.trim_trailing_whitespace,
+            insert_final_newline: self.insert_final_newline,
+            trim_final_newlines: self.trim_final_newlines,
+            max_consecutive_blank_lines: self.max_consecutive_blank_lines,
+            line_ending: self.line_ending,
+            line_width: self.line_width,
         }
     }
 }
@@ -224,6 +254,12 @@ struct PartialFormattingConfig {
     enabled: Option<bool>,
     indent_size: Option<usize>,
     use_tabs: Option<bool>,
+    trim_trailing_whitespace: Option<bool>,
+    insert_final_newline: Option<bool>,
+    trim_final_newlines: Option<bool>,
+    max_consecutive_blank_lines: Option<usize>,
+    line_ending: Option<LineEnding>,
+    line_width: Option<usize>,
     idempotence: Option<bool>,
 }
 
@@ -377,6 +413,24 @@ fn merge_partial_into(base: &mut AblConfig, partial: &PartialAblConfig, config_p
         }
         if let Some(use_tabs) = formatting.use_tabs {
             base.formatting.use_tabs = use_tabs;
+        }
+        if let Some(trim_trailing_whitespace) = formatting.trim_trailing_whitespace {
+            base.formatting.trim_trailing_whitespace = trim_trailing_whitespace;
+        }
+        if let Some(insert_final_newline) = formatting.insert_final_newline {
+            base.formatting.insert_final_newline = insert_final_newline;
+        }
+        if let Some(trim_final_newlines) = formatting.trim_final_newlines {
+            base.formatting.trim_final_newlines = trim_final_newlines;
+        }
+        if let Some(max_consecutive_blank_lines) = formatting.max_consecutive_blank_lines {
+            base.formatting.max_consecutive_blank_lines = max_consecutive_blank_lines;
+        }
+        if let Some(line_ending) = formatting.line_ending {
+            base.formatting.line_ending = line_ending;
+        }
+        if let Some(line_width) = formatting.line_width {
+            base.formatting.line_width = line_width;
         }
         if let Some(idempotence) = formatting.idempotence {
             base.formatting.idempotence = idempotence;
@@ -578,6 +632,12 @@ paths = ["/global/docs.i", "relative/ambient.i"]
 enabled = true
 indent_size = 4
 use_tabs = false
+trim_trailing_whitespace = false
+insert_final_newline = false
+trim_final_newlines = false
+max_consecutive_blank_lines = 2
+line_ending = "crlf"
+line_width = 100
 idempotence = false
 "#,
         )
@@ -586,7 +646,18 @@ idempotence = false
         assert!(cfg.formatting.enabled);
         assert_eq!(cfg.formatting.indent_size, 4);
         assert!(!cfg.formatting.use_tabs);
+        assert!(!cfg.formatting.trim_trailing_whitespace);
+        assert!(!cfg.formatting.insert_final_newline);
+        assert!(!cfg.formatting.trim_final_newlines);
+        assert_eq!(cfg.formatting.max_consecutive_blank_lines, 2);
+        assert_eq!(cfg.formatting.line_ending, super::LineEnding::Crlf);
+        assert_eq!(cfg.formatting.line_width, 100);
         assert!(!cfg.formatting.idempotence);
+    }
+
+    #[test]
+    fn uses_standard_formatter_line_width_by_default() {
+        assert_eq!(AblConfig::default().formatting.line_width, 100);
     }
 
     #[test]

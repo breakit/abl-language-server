@@ -1,7 +1,7 @@
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{DocumentFormattingParams, Position, Range, TextEdit};
 
-use crate::analysis::formatting::{IndentOptions, autoindent_text, preserves_ast_shape};
+use crate::analysis::formatting::{format_text, is_safe_format};
 use crate::backend::Backend;
 
 impl Backend {
@@ -19,28 +19,38 @@ impl Backend {
             return Ok(None);
         };
 
-        let indent_size = if params.options.tab_size > 0 {
+        let mut options = config.formatting.formatter_options();
+        options.indent_size = if params.options.tab_size > 0 {
             params.options.tab_size as usize
         } else {
             config.formatting.indent_size
         };
-        let options = IndentOptions {
-            indent_size,
-            use_tabs: !params.options.insert_spaces || config.formatting.use_tabs,
-        };
+        options.use_tabs = !params.options.insert_spaces || options.use_tabs;
+        options.trim_trailing_whitespace = params
+            .options
+            .trim_trailing_whitespace
+            .unwrap_or(options.trim_trailing_whitespace);
+        options.insert_final_newline = params
+            .options
+            .insert_final_newline
+            .unwrap_or(options.insert_final_newline);
+        options.trim_final_newlines = params
+            .options
+            .trim_final_newlines
+            .unwrap_or(options.trim_final_newlines);
 
-        let formatted = autoindent_text(&text, options);
+        let formatted = format_text(&text, options);
         if formatted == text {
             return Ok(Some(vec![]));
         }
 
         let mut parser = self.new_abl_parser();
-        if !preserves_ast_shape(&text, &formatted, &mut parser) {
+        if !is_safe_format(&text, &formatted, &mut parser) {
             return Ok(None);
         }
 
         if config.formatting.idempotence {
-            let formatted_again = autoindent_text(&formatted, options);
+            let formatted_again = format_text(&formatted, options);
             if formatted_again != formatted {
                 return Ok(None);
             }
