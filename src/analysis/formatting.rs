@@ -132,13 +132,40 @@ fn apply_body_indent(node: Node<'_>, text: &str, line_indents: &mut [usize]) {
         add_indent_range(line_indents, start, end);
     }
 
+    // These constructs have no `body` child, so the body-based rule below never
+    // sees them. `enum_statement` is deliberately absent: it ends in
+    // `_statement` and is already covered by `continuation_range`.
+    if matches!(
+        node.kind(),
+        "class_definition" | "interface_definition" | "data_source_class_definition"
+    ) {
+        apply_member_indent(node, line_indents);
+    }
+
     if let Some(body) = first_named_child_of_kind(node, "body") {
         let start_row = body.start_position().row;
         let start_col = body.start_position().column;
         let mut end_row = body.end_position().row;
         let end_col = body.end_position().column;
 
-        let start = if start_col > 0 {
+        // Skip the body's first line when that line still carries trailing
+        // header text, such as the `ON ERROR UNDO, THROW:` closing a FOR EACH
+        // or the `):` closing a constructor signature. Such a line holds the
+        // header, so it keeps the node's own indentation and must not be
+        // pushed in by the body range.
+        //
+        // Testing the column alone gets this wrong whenever the header spans
+        // several lines, as with a constructor whose `input` parameters wrap.
+        // There the body starts at a non-zero column but on a line of its own
+        // that holds no header text, and skipping it made the indent unstable
+        // between formatting passes, so the idempotence check rejected the
+        // whole document. A non-zero start column only means "header text on
+        // this line" when the body is the first thing on the node, or when the
+        // preceding child of the node ends on this same line.
+        let header_shares_first_line =
+            start_col > 0 && previous_sibling_ends_on_row(node, "body", start_row);
+
+        let start = if header_shares_first_line {
             start_row.saturating_add(1)
         } else {
             start_row
@@ -252,10 +279,67 @@ fn continuation_range_until_anchor(start_row: usize, anchor: Node<'_>) -> Option
     (from <= upper).then_some((from, upper))
 }
 
+/// Indents the members of a class, interface, or data source by one level.
+///
+/// These constructs have no `body` child: their members are direct named
+/// children of the definition node, so `apply_body_indent` never sees them and
+/// they collapse to the left margin. The header tokens (the type name and
+/// anything sharing its line) are excluded so only real members move in, and
+/// the closing `end class.` is excluded because it is not a named child.
+fn apply_member_indent(node: Node<'_>, line_indents: &mut [usize]) {
+    let header_row = node.start_position().row;
+    let mut cursor = node.walk();
+    let mut start: Option<usize> = None;
+    let mut end: Option<usize> = None;
+
+    for child in node.children(&mut cursor) {
+        if !child.is_named() {
+            continue;
+        }
+        // Skip the name in the `class Foo:` header, and any token that shares
+        // the header line, so the header itself keeps the node's indentation.
+        if child.kind() == "identifier" || child.start_position().row == header_row {
+            continue;
+        }
+        let from = child.start_position().row;
+        let to = child.end_position().row;
+        start = Some(start.map_or(from, |current: usize| current.min(from)));
+        end = Some(end.map_or(to, |current: usize| current.max(to)));
+    }
+
+    if let (Some(from), Some(to)) = (start, end) {
+        add_indent_range(line_indents, from, to);
+    }
+}
+
 fn first_named_child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
     let mut cursor = node.walk();
     node.children(&mut cursor)
         .find(|child| child.is_named() && child.kind() == kind)
+}
+
+/// True when the named child immediately preceding `kind` ends on `row`.
+///
+/// Used to tell whether a body that starts mid-line shares that line with the
+/// header text in front of it. Returns true when there is no preceding child,
+/// since a body that is the node's first child can only be indented when the
+/// header itself began on that same line.
+fn previous_sibling_ends_on_row(node: Node<'_>, kind: &str, row: usize) -> bool {
+    let mut cursor = node.walk();
+    let mut previous: Option<Node<'_>> = None;
+    for child in node.children(&mut cursor) {
+        if !child.is_named() {
+            continue;
+        }
+        if child.kind() == kind {
+            return match previous {
+                None => node.start_position().row == row,
+                Some(prev) => prev.end_position().row == row,
+            };
+        }
+        previous = Some(child);
+    }
+    false
 }
 
 fn first_child_row_of_kinds(node: Node<'_>, kinds: &[&str]) -> Option<usize> {
@@ -386,6 +470,67 @@ mod tests {
             .set_language(&tree_sitter_abl::LANGUAGE.into())
             .expect("set abl language");
         parser.parse(src, None).expect("parse source")
+    }
+
+    #[test]
+    fn indents_constructor_body_when_parameters_wrap_over_lines() {
+        let input = "class Foo:\nconstructor public Foo(\ninput a as character,\ninput b as character\n):\nx = 1.\nEND CLASS.\n";
+        let got = autoindent_text(input, IndentOptions::default());
+        let expected = "class Foo:\nconstructor public Foo(\n  input a as character,\n  input b as character\n):\n  x = 1.\n  END CLASS.\n";
+        assert_eq!(got, expected);
+        // Regression guard: with the wrapped-parameter constructor the body's
+        // first line used to be treated as header text on one pass and as a
+        // normal statement on the next, so the two passes disagreed and the
+        // idempotence check in the formatting handler rejected the whole file.
+        assert_eq!(autoindent_text(&got, IndentOptions::default()), got);
+    }
+
+    #[test]
+    fn indents_for_each_body_that_starts_mid_line_after_on_error_phrase() {
+        let input = "FOR EACH cust WHERE\nname = \"A\"\nNO-LOCK\nON ERROR UNDO, THROW:\nMESSAGE cust.name.\nEND.\n";
+        let got = autoindent_text(input, IndentOptions::default());
+        let expected = "FOR EACH cust WHERE\n  name = \"A\"\n  NO-LOCK\n  ON ERROR UNDO, THROW:\n  MESSAGE cust.name.\nEND.\n";
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn indents_class_members_and_their_bodies() {
+        let input = "class Foo:\ndefine variable a as integer no-undo.\nconstructor public Foo():\nx = 1.\nend constructor.\nmethod public void bar():\ny = 2.\nend method.\nend class.\n";
+        let got = autoindent_text(input, IndentOptions::default());
+        let expected = "class Foo:\n  define variable a as integer no-undo.\n  constructor public Foo():\n    x = 1.\n  end constructor.\n  method public void bar():\n    y = 2.\n  end method.\nend class.\n";
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn indents_class_members_when_members_are_flushed_left() {
+        // The shape the formatter used to get wrong: members sitting at column
+        // zero were left there, because class_definition has no body child.
+        let input = "class Foo:\ndefine variable a as integer no-undo.\ndefine variable b as character no-undo.\nend class.\n";
+        let got = autoindent_text(input, IndentOptions::default());
+        let expected = "class Foo:\n  define variable a as integer no-undo.\n  define variable b as character no-undo.\nend class.\n";
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn indents_members_of_interface() {
+        let input = "interface Foo:\nmethod public void bar().\nend interface.\n";
+        let got = autoindent_text(input, IndentOptions::default());
+        assert_eq!(
+            got,
+            "interface Foo:\n  method public void bar().\nend interface.\n"
+        );
+    }
+
+    #[test]
+    fn indents_class_members_consistently_when_class_has_wrapped_constructor() {
+        // A class whose constructor header spans several lines, mirroring the
+        // shape found in CMAGPARAM.cls, which the formatter refused to touch
+        // before the body-start detection was fixed.
+        let input = "class Foo:\ndefine variable a as integer no-undo.\n\nconstructor public Foo(\ninput s as character\n):\nx = 1.\nend class.\n";
+        let got = autoindent_text(input, IndentOptions::default());
+        let once = got.clone();
+        let twice = autoindent_text(&got, IndentOptions::default());
+        assert_eq!(once, twice, "formatting must be stable across passes");
     }
 
     #[test]
