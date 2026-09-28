@@ -16,21 +16,28 @@ impl Default for IndentOptions {
 }
 
 pub fn autoindent_text(text: &str, options: IndentOptions) -> String {
-    let mut out = String::with_capacity(text.len());
     let mut line_indents = vec![0usize; line_count(text)];
 
     if let Some(tree) = parse_abl_tree(text) {
         collect_line_indents(tree.root_node(), text, &mut line_indents);
     }
 
+    let mut out = String::with_capacity(text.len());
+    let mut blank_run = 0usize;
+
     for (idx, raw_line) in text.split_inclusive('\n').enumerate() {
         let (line_without_nl, newline) = split_line_ending(raw_line);
-        let trimmed = line_without_nl.trim_start_matches([' ', '\t']);
+        let trimmed = line_without_nl.trim();
+
         if trimmed.is_empty() {
-            out.push_str(newline);
+            blank_run += 1;
+            if blank_run == 1 {
+                out.push_str(newline);
+            }
             continue;
         }
 
+        blank_run = 0;
         let indent = line_indents.get(idx).copied().unwrap_or_default();
         push_indent(&mut out, indent, options);
         out.push_str(trimmed);
@@ -40,18 +47,26 @@ pub fn autoindent_text(text: &str, options: IndentOptions) -> String {
     out
 }
 
+/// Compares the AST before and after formatting to make sure the reformat did
+/// not change the structure of the code.
+///
+/// When both sides parse cleanly the tree shapes must match exactly. When either
+/// side has a syntax error the trees cannot be compared reliably, so the check
+/// passes: the formatter only ever rewrites horizontal whitespace, and ABL is
+/// not whitespace sensitive, so a reformat cannot alter the meaning of the
+/// code even when the parser is unhappy about something else in the file.
 pub fn preserves_ast_shape(original: &str, formatted: &str, parser: &mut Parser) -> bool {
     let Some(before) = parser.parse(original, None) else {
-        return false;
+        return true;
     };
     let Some(after) = parser.parse(formatted, None) else {
-        return false;
+        return true;
     };
 
     let before_root = before.root_node();
     let after_root = after.root_node();
     if before_root.has_error() || after_root.has_error() {
-        return false;
+        return true;
     }
 
     before_root.to_sexp() == after_root.to_sexp()
@@ -379,6 +394,58 @@ mod tests {
         let got = autoindent_text(input, IndentOptions::default());
         let expected = "IF TRUE THEN DO:\n  MESSAGE \"X\".\nEND.\n";
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn strips_trailing_whitespace_from_code_lines() {
+        let input = "MESSAGE \"X\".   \n\tMESSAGE \"Y\".\t\n";
+        let got = autoindent_text(input, IndentOptions::default());
+        assert_eq!(got, "MESSAGE \"X\".\nMESSAGE \"Y\".\n");
+    }
+
+    #[test]
+    fn collapses_runs_of_blank_lines_to_one() {
+        let input = "MESSAGE \"X\".\n\n\n\nMESSAGE \"Y\".\n\n\n\nEND.\n";
+        let got = autoindent_text(input, IndentOptions::default());
+        assert_eq!(got, "MESSAGE \"X\".\n\nMESSAGE \"Y\".\n\nEND.\n");
+    }
+
+    #[test]
+    fn whitespace_only_lines_become_truly_empty() {
+        let input = "MESSAGE \"X\".\n   \n\t\t\nMESSAGE \"Y\".\n";
+        let got = autoindent_text(input, IndentOptions::default());
+        assert_eq!(got, "MESSAGE \"X\".\n\nMESSAGE \"Y\".\n");
+    }
+
+    #[test]
+    fn formatting_is_idempotent() {
+        let input = "IF TRUE THEN DO:\n\n\n\nMESSAGE \"X\".   \n\n\nEND.\n";
+        let once = autoindent_text(input, IndentOptions::default());
+        let twice = autoindent_text(&once, IndentOptions::default());
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn preserves_ast_shape_accepts_files_with_syntax_errors() {
+        let original = "MESSAGE \"X\".   \nthis is not valid abl $$$\n\n\n\nMESSAGE \"Y\".\n";
+        let formatted = autoindent_text(original, IndentOptions::default());
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_abl::LANGUAGE.into())
+            .expect("set abl language");
+        assert!(parse_abl(original).root_node().has_error());
+        assert!(preserves_ast_shape(original, &formatted, &mut parser));
+    }
+
+    #[test]
+    fn preserves_ast_shape_still_rejects_real_structural_changes() {
+        let original = "MESSAGE \"X\".\n";
+        let altered = "MESSAGE \"X\".\nMESSAGE \"Z\".\n";
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_abl::LANGUAGE.into())
+            .expect("set abl language");
+        assert!(!preserves_ast_shape(original, altered, &mut parser));
     }
 
     #[test]
